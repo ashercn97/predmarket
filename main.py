@@ -1,17 +1,24 @@
-from predmarket.polymarket.ws import PolymarketWS
+from predmarket.client import UnifiedClient
+from predmarket.kalshi.rest import KalshiRest
 from predmarket.polymarket.rest import PolymarketRest
-import asyncio, httpx, json
-
+import asyncio
+import httpx
 
 async def main():
-    async with httpx.AsyncClient() as h:
-        polymarket = PolymarketRest(h)
-        markets = await polymarket.fetch_contracts(offset=113000)
-        markets = [json.loads(d.raw["clobTokenIds"])[0] for d in markets.data][:10]
-        async with PolymarketWS.connect() as c:
-            pm = PolymarketWS(c)
-            async for d in pm.stream(markets):
-                print(d)
+    async with httpx.AsyncClient() as client:
+        kalshi = KalshiRest(client)
+        polymarket = PolymarketRest(client)
+        unified_client = UnifiedClient(kalshi, polymarket)
 
+        print("--- Fetching questions ---")
+        questions = await unified_client.fetch_questions()
+        for question in questions:
+            print(f"- {question.title} ({question.platform})")
 
-asyncio.run(main())
+        print("\n--- Fetching contracts ---")
+        contracts = await unified_client.fetch_contracts()
+        for contract in contracts:
+            print(f"- {contract.id} ({contract.platform})")
+
+if __name__ == "__main__":
+    asyncio.run(main())
