@@ -10,6 +10,8 @@ dependencies = [
     "structlog>=25.4.0",
     "websockets>=15.0.1",
     "yarl>=1.22.0",
+    "fastapi>=0.111.0",
+    "uvicorn>=0.29.0",
 ]
 
 [project.optional-dependencies]

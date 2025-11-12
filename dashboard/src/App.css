@@ -1,0 +1,25 @@
+.app {
+  font-family: sans-serif;
+}
+
+.header {
+  background-color: #333;
+  color: white;
+  padding: 1rem;
+  text-align: center;
+}
+
+.container {
+  display: flex;
+}
+
+.sidebar {
+  width: 200px;
+  padding: 1rem;
+  background-color: #f4f4f4;
+}
+
+.main-content {
+  flex-grow: 1;
+  padding: 1rem;
+}
