@@ -17,27 +17,35 @@ or
 
 ### REST
 ```python
-from predmarket import KalshiRest, PolymarketRest
+from predmarket import UnifiedClient, KalshiRest, PolymarketRest
 from httpx import AsyncClient
+import asyncio
 
-async def main()
+async def main():
     async with AsyncClient() as client:
-
-        # Initialize fetchers. Each with exact same public-facing API.
+        # Initialize fetchers for each platform
         kalshi = KalshiRest(client)
         polymarket = PolymarketRest(client)
 
-        # Fetch available Questions (e.g. "When will Elon Musk get to Mars?", known as events in native API)
-        kalshi_questions = await kalshi.fetch_questions()
-        polymarket_questions = await polymarket.fetch_questions(limit=10, asc=True) # Polymarket-specific query params
+        # Initialize the unified client
+        unified_client = UnifiedClient(kalshi, polymarket)
 
-        # Fetch available Contracts  (e.g. "Will Elon Musk get to Mars before 2026?", these are individual "solutions" for a given question , Markets in native APIs)
-        kalshi_contracts = await kalshi.fetch_contracts()
-        polymarket_contracts = await polymarket.fetch_contracts() # Polymarket-specific query params
+        # Fetch available Questions (e.g. "When will Elon Musk get to Mars?")
+        questions = await unified_client.fetch_questions()
+        for question in questions:
+            print(f"- {question.title} ({question.platform})")
+
+        # Fetch available Contracts  (e.g. "Will Elon Musk get to Mars before 2026?")
+        contracts = await unified_client.fetch_contracts()
+        for contract in contracts:
+            print(f"- {contract.id} ({contract.platform})")
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 ### WS
 ```python
-from predmarket import PolymarktWS # Kalshi is NOT currently supported, but will be very solutions
+from predmarket import PolymarketWS # Kalshi is NOT currently supported, but will be very solutions
 
 async def main():
     async with PolymarketWS.connect() as socket:

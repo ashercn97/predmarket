@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prediction Market Screener</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="dashboard-container">
+        <header id="dashboard-header">
+            <div id="dashboard-tabs">
+                <button class="dashboard-tab active" data-tab="sweeps">Sweeps</button>
+                <button class="dashboard-tab" data-tab="whales">Whales</button>
+                <button class="dashboard-tab" data-tab="no-markets">NO Markets</button>
+                <button class="dashboard-tab" data-tab="edge-markets">Edge Markets</button>
+                <button class="dashboard-tab" data-tab="closing-soon">Closing Soon</button>
+                <button class="dashboard-tab" data-tab="clusters">Clusters</button>
+            </div>
+            <div id="dashboard-filters">
+                <input type="number" id="filter-min-amount" placeholder="Min Amount">
+                <label><input type="checkbox" id="filter-ignore-sports"> Ignore Sports</label>
+                <label><input type="checkbox" id="filter-ignore-crypto"> Ignore Crypto</label>
+            </div>
+        </header>
+        <main id="content-wrapper"></main>
+        <footer id="dashboard-footer">
+            <div id="pagination"></div>
+            <div id="connection-status">
+                <span id="live-indicator"></span>
+                <span id="pause-indicator" style="display:none;"></span>
+            </div>
+        </footer>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

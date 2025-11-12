@@ -10,9 +10,11 @@ dependencies = [
     "structlog>=25.4.0",
     "websockets>=15.0.1",
     "yarl>=1.22.0",
+    "fastapi>=0.111.0",
+    "uvicorn>=0.29.0",
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
