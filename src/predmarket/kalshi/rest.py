@@ -1,11 +1,9 @@
 from __future__ import annotations
 from yarl import URL
+from predmarket.core.models import Question, Contract, Platform
 from predmarket.model.rest import (
     Response,
-    Price,
-    Contract,
     BaseExchangeClient,
-    Question,
     clean_params,
 )
 
@@ -15,30 +13,37 @@ class KalshiRest(BaseExchangeClient):
 
     BASE_URL = URL("https://api.elections.kalshi.com/trade-api/v2/")
 
-    async def fetch_price(self, id: str) -> Response[Price]:
-        data = await self._safe_get(self.BASE_URL / "markets" / id, {})
-        return Response(data=Price.from_kalshi(data["market"]), metadata={})
-
-    async def fetch_contract(self, id: str) -> Response[Contract]:
-        data = await self._safe_get(self.BASE_URL / "markets" / id, {})
-        return Response(data=Contract.from_kalshi(data["market"]), metadata={})
-
     async def fetch_contracts(self, **kwargs) -> Response[list[Contract]]:
         params = clean_params(**kwargs)
         data = await self._safe_get(self.BASE_URL / "markets", params)
+        contracts = [
+            Contract(
+                id=market.get("ticker"),
+                platform=Platform.KALSHI,
+                question_id=market.get("event_ticker"),
+                outcomes=["Yes", "No"],
+                raw=market,
+            )
+            for market in data.get("markets", [])
+        ]
         return Response(
-            data=[Contract.from_kalshi(m) for m in data.get("markets", [])],
+            data=contracts,
             metadata={"cursor": data.get("cursor")},
         )
-
-    async def fetch_question(self, id: str) -> Response[Question]:
-        data = await self._safe_get(self.BASE_URL / "events" / id, {})
-        return Response(data=Question.from_kalshi(data["event"]), metadata={})
 
     async def fetch_questions(self, **kwargs) -> Response[list[Question]]:
         params = clean_params(**kwargs)
         data = await self._safe_get(self.BASE_URL / "events", params)
+        questions = [
+            Question(
+                id=event.get("event_ticker"),
+                platform=Platform.KALSHI,
+                title=event.get("title"),
+                raw=event,
+            )
+            for event in data.get("events", [])
+        ]
         return Response(
-            data=[Question.from_kalshi(event) for event in data.get("events", [])],
+            data=questions,
             metadata={"cursor": data.get("cursor")},
         )

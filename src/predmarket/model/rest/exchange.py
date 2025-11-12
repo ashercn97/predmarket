@@ -3,9 +3,7 @@ from typing import Any
 from .response import *
 from httpx import AsyncClient, HTTPStatusError
 from yarl import URL
-from .price import Price
-from .question import Question
-from .contract import Contract
+from predmarket.core.models import Question, Contract
 
 
 class BaseExchangeClient(ABC):
@@ -24,20 +22,8 @@ class BaseExchangeClient(ABC):
             raise RuntimeError(f"Request failed ({url}): {exc.response.text}") from exc
 
     @abstractmethod
-    async def fetch_price(self, id: str) -> Response[Price]:
-        """Fetch a single contract price."""
-
-    @abstractmethod
-    async def fetch_contract(self, id: str) -> Response[Contract]:
-        """Fetch metadata for a single contract."""
-
-    @abstractmethod
     async def fetch_contracts(self, **kwargs: Any) -> Response[list[Contract]]:
         """Fetch a batch of contracts."""
-
-    @abstractmethod
-    async def fetch_question(self, id: str) -> Response[Question]:
-        """Fetch metadata for a single question/event."""
 
     @abstractmethod
     async def fetch_questions(self, **kwargs: Any) -> Response[list[Question]]:
