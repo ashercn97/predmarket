@@ -3,14 +3,12 @@
 import asyncio
 import json
 
-import httpx
-
 from predmarket import PolymarketRest, PolymarketWS
 
 
 async def main() -> None:
-    async with httpx.AsyncClient() as client:
-        contracts = await PolymarketRest(client).fetch_contracts(
+    async with PolymarketRest() as polymarket:
+        contracts = await polymarket.fetch_contracts(
             limit=5,
             closed=False,
             order="volume24hr",
@@ -19,7 +17,7 @@ async def main() -> None:
 
     assets = [json.loads(contract.raw["clobTokenIds"])[0] for contract in contracts.data]
     for contract in contracts.data:
-        print(f"{contract.id}  {contract.question}")
+        print(f"{contract.id}  {contract.price}  {contract.question}")
 
     async with PolymarketWS.connect() as socket:
         async for update in PolymarketWS(socket).stream(assets):

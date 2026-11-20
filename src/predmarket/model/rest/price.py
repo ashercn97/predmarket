@@ -2,35 +2,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from .._parse import coerce_float, kalshi_count, kalshi_dollars
 
-def coerce_float(value: Any) -> float | None:
-    """Best-effort float conversion that tolerates missing or malformed values."""
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def kalshi_quote(market: dict[str, Any], field: str) -> float | None:
-    """Read a Kalshi price.
-
-    Kalshi quotes prices as decimal strings under ``*_dollars``; older payloads
-    carried integer cents under the bare field name.
-    """
-    if (value := market.get(f"{field}_dollars")) is not None:
-        return coerce_float(value)
-    if (cents := coerce_float(market.get(field))) is None:
-        return None
-    return cents / 100
-
-
-def kalshi_count(market: dict[str, Any], field: str) -> float | None:
-    """Read a Kalshi contract count, which is exposed as a ``*_fp`` decimal string."""
-    if (value := market.get(f"{field}_fp")) is not None:
-        return coerce_float(value)
-    return coerce_float(market.get(field))
+__all__ = ["Price", "coerce_float"]
 
 
 class Price(BaseModel):
@@ -47,9 +21,9 @@ class Price(BaseModel):
     @classmethod
     def from_kalshi(cls, market: dict[str, Any]) -> "Price":
         return cls(
-            price=kalshi_quote(market, "last_price"),
-            ask=kalshi_quote(market, "yes_ask"),
-            bid=kalshi_quote(market, "yes_bid"),
+            price=kalshi_dollars(market, "last_price"),
+            ask=kalshi_dollars(market, "yes_ask"),
+            bid=kalshi_dollars(market, "yes_bid"),
             volume=kalshi_count(market, "volume"),
         )
 

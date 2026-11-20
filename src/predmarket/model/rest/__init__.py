@@ -1,5 +1,6 @@
 from typing import Any, Literal
 
+from ..book import OrderBook, PriceLevel, Side
 from .contract import Contract
 from .exchange import BaseExchangeClient
 from .price import Price
@@ -18,8 +19,11 @@ __all__ = [
     "BaseExchangeClient",
     "Contract",
     "ExchangeName",
+    "OrderBook",
     "Price",
+    "PriceLevel",
     "Question",
     "Response",
+    "Side",
     "clean_params",
 ]

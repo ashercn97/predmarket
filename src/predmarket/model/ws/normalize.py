@@ -1,8 +1,11 @@
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel
+
+from .._parse import coerce_float, epoch_ms, iso_timestamp, levels_from_pairs
+from ..book import PriceLevel, Side
 
 __all__ = [
     "BookDelta",
@@ -24,23 +27,6 @@ class Exchange(StrEnum):
 
     POLYMARKET = "polymarket"
     KALSHI = "kalshi"
-
-
-class Side(StrEnum):
-    """Order side or contract outcome, depending on the model."""
-
-    BUY = "buy"
-    SELL = "sell"
-    YES = "yes"
-    NO = "no"
-
-
-class PriceLevel(BaseModel):
-    """One price level in an order book."""
-
-    price: float
-    size: float
-    side: Side | None = None
 
 
 class BookSnapshot(BaseModel):
@@ -90,24 +76,21 @@ class Ticker(BaseModel):
 type UnifiedModel = BookSnapshot | BookDelta | Trade | Ticker
 
 
-def _epoch_ms(value: Any) -> datetime | None:
-    """Convert a millisecond epoch timestamp into an aware datetime."""
-    if not value:
-        return None
-    try:
-        return datetime.fromtimestamp(int(value) / 1000, tz=UTC)
-    except (TypeError, ValueError, OSError):
-        return None
+def _polymarket_levels(raw: Any, side: Side) -> list[PriceLevel]:
+    """Polymarket book levels carry ``price``/``size`` as decimal strings."""
+    return [
+        PriceLevel(price=float(level["price"]), size=float(level["size"]), side=side)
+        for level in raw or []
+        if isinstance(level, dict) and "price" in level and "size" in level
+    ]
 
 
-def _iso(value: Any) -> datetime | None:
-    """Parse an ISO-8601 timestamp into an aware datetime."""
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
+def _kalshi_side(data: dict[str, Any], side: str) -> list[tuple[float, float]]:
+    """Kalshi lists each side as ``[[price, size], ...]`` in dollars."""
+    modern = f"{side}_dollars"
+    if modern in data:
+        return levels_from_pairs(data.get(modern))
+    return levels_from_pairs(data.get(side), cents=True)
 
 
 class PolymarketParser:
@@ -115,7 +98,7 @@ class PolymarketParser:
 
     @staticmethod
     def parse(msg: dict[str, Any]) -> UnifiedModel | None:
-        timestamp = _epoch_ms(msg.get("timestamp"))
+        timestamp = epoch_ms(msg.get("timestamp"))
         market_id = msg.get("market") or msg.get("condition_id") or msg.get("asset_id") or ""
 
         match msg.get("event_type"):
@@ -123,14 +106,8 @@ class PolymarketParser:
                 return BookSnapshot(
                     exchange=Exchange.POLYMARKET,
                     market_id=market_id,
-                    bids=[
-                        PriceLevel(price=float(x["price"]), size=float(x["size"]), side=Side.BUY)
-                        for x in msg.get("bids", [])
-                    ],
-                    asks=[
-                        PriceLevel(price=float(x["price"]), size=float(x["size"]), side=Side.SELL)
-                        for x in msg.get("asks", [])
-                    ],
+                    bids=_polymarket_levels(msg.get("bids"), Side.BUY),
+                    asks=_polymarket_levels(msg.get("asks"), Side.SELL),
                     timestamp=timestamp,
                 )
             case "price_change":
@@ -144,6 +121,7 @@ class PolymarketParser:
                             side=Side.BUY if change.get("side") == "BUY" else Side.SELL,
                         )
                         for change in msg.get("price_changes", [])
+                        if "price" in change and "size" in change
                     ],
                     timestamp=timestamp,
                 )
@@ -151,8 +129,8 @@ class PolymarketParser:
                 return Trade(
                     exchange=Exchange.POLYMARKET,
                     market_id=market_id,
-                    price=float(msg.get("price", 0)),
-                    size=float(msg.get("size", 0)),
+                    price=coerce_float(msg.get("price")) or 0.0,
+                    size=coerce_float(msg.get("size")) or 0.0,
                     side=Side.BUY if msg.get("side") == "BUY" else Side.SELL,
                     timestamp=timestamp,
                 )
@@ -166,7 +144,7 @@ class KalshiParser:
     @staticmethod
     def parse(msg: dict[str, Any]) -> UnifiedModel | None:
         data = msg.get("msg") or msg.get("data") or {}
-        timestamp = _iso(data.get("ts"))
+        timestamp = iso_timestamp(data.get("ts"))
         market_id = data.get("market_ticker") or ""
 
         match msg.get("type"):
@@ -175,12 +153,12 @@ class KalshiParser:
                     exchange=Exchange.KALSHI,
                     market_id=market_id,
                     bids=[
-                        PriceLevel(price=price / 100, size=size, side=Side.YES)
-                        for price, size in data.get("yes", [])
+                        PriceLevel(price=price, size=size, side=Side.YES)
+                        for price, size in sorted(_kalshi_side(data, "yes"), reverse=True)
                     ],
                     asks=[
-                        PriceLevel(price=price / 100, size=size, side=Side.NO)
-                        for price, size in data.get("no", [])
+                        PriceLevel(price=round(1 - price, 6), size=size, side=Side.YES)
+                        for price, size in sorted(_kalshi_side(data, "no"), reverse=True)
                     ],
                     timestamp=timestamp,
                 )
@@ -190,12 +168,12 @@ class KalshiParser:
                     market_id=market_id,
                     deltas=[
                         PriceLevel(
-                            price=price / 100,
+                            price=price if side == "yes" else round(1 - price, 6),
                             size=size,
-                            side=Side.YES if side == "yes" else Side.NO,
+                            side=Side.YES,
                         )
                         for side in ("yes", "no")
-                        for price, size in data.get(side, [])
+                        for price, size in _kalshi_side(data, side)
                     ],
                     timestamp=timestamp,
                 )
@@ -204,8 +182,8 @@ class KalshiParser:
                 return Trade(
                     exchange=Exchange.KALSHI,
                     market_id=market_id,
-                    price=float(data.get("yes_price", 0)) / 100,
-                    size=float(data.get("count", 0)),
+                    price=(coerce_float(data.get("yes_price_dollars")) or 0.0),
+                    size=coerce_float(data.get("count")) or 0.0,
                     side=taker,
                     taker_side=taker,
                     timestamp=timestamp,
@@ -214,13 +192,11 @@ class KalshiParser:
                 return Ticker(
                     exchange=Exchange.KALSHI,
                     market_id=market_id,
-                    last_price=data["price"] / 100 if data.get("price") else None,
-                    best_bid=data["yes_bid"] / 100 if data.get("yes_bid") else None,
-                    best_ask=data["yes_ask"] / 100 if data.get("yes_ask") else None,
-                    volume=float(data["volume"]) if data.get("volume") else None,
-                    open_interest=float(data["open_interest"])
-                    if data.get("open_interest")
-                    else None,
+                    last_price=coerce_float(data.get("price_dollars")),
+                    best_bid=coerce_float(data.get("yes_bid_dollars")),
+                    best_ask=coerce_float(data.get("yes_ask_dollars")),
+                    volume=coerce_float(data.get("volume")),
+                    open_interest=coerce_float(data.get("open_interest")),
                     timestamp=timestamp,
                 )
             case _:
@@ -230,9 +206,9 @@ class KalshiParser:
 def normalize_message(msg: dict[str, Any], source: Exchange | str) -> UnifiedModel | None:
     """Normalize a raw exchange websocket message into a unified model."""
     match source:
-        case Exchange.POLYMARKET | "polymarket":
+        case "polymarket":
             return PolymarketParser.parse(msg)
-        case Exchange.KALSHI | "kalshi":
+        case "kalshi":
             return KalshiParser.parse(msg)
         case _:
             raise ValueError(f"Unknown source: {source}")
