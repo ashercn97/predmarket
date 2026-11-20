@@ -1,51 +1,93 @@
 # A Unified SDK for Prediction Markets
 
-### Check out [The Odds Company](https://github.com/orgs/the-odds-company/repositories) for similar projects
+`predmarket` is an `asyncio`-native Python library that talks directly to prediction markets (Kalshi and Polymarket).
 
-`predmarket` is an `asyncio`-native Python-based library that communicates directly with prediction markets (Kalshi and Polymarket).
+Both Kalshi and Polymarket expose public APIs with high rate limits. `predmarket` unifies them into one install, one format, and one library to learn. It aims to be abstract enough to be intuitive, without giving up any power of the individual APIs.
 
-Both Kalshi and Polymarket provide public-facing APIs with high rate limits. `predmarket` aims to unify these two APIs into one install, one format, and one library to learn. The goal to be abstract enough to be intuitive, but not lose **any** power of the individual APIs.
-
-Currently, Websocket support is under development. A working implementation of Polymarket's CLOB WS API is available, while Kalshi's is still being developed.
+REST support is complete for both exchanges. On the websocket side, Polymarket's CLOB market channel is implemented; Kalshi's websocket support is still in progress.
 
 ## Install
-```uv add predmarket ```
+
+```sh
+uv add predmarket
+```
+
 or
-`pip install predmarket`
+
+```sh
+pip install predmarket
+```
+
+Requires Python 3.13 or newer.
 
 ## Basic Usage
 
 ### REST
+
 ```python
-from predmarket import KalshiRest, PolymarketRest
+import asyncio
+
 from httpx import AsyncClient
 
-async def main()
-    async with AsyncClient() as client:
+from predmarket import KalshiRest, PolymarketRest
 
-        # Initialize fetchers. Each with exact same public-facing API.
+
+async def main() -> None:
+    async with AsyncClient() as client:
+        # Each client exposes the same public API.
         kalshi = KalshiRest(client)
         polymarket = PolymarketRest(client)
 
-        # Fetch available Questions (e.g. "When will Elon Musk get to Mars?", known as events in native API)
+        # Fetch available questions (events in the native APIs).
         kalshi_questions = await kalshi.fetch_questions()
-        polymarket_questions = await polymarket.fetch_questions(limit=10, asc=True) # Polymarket-specific query params
+        polymarket_questions = await polymarket.fetch_questions(limit=10, asc=True)
 
-        # Fetch available Contracts  (e.g. "Will Elon Musk get to Mars before 2026?", these are individual "solutions" for a given question , Markets in native APIs)
+        # Fetch available contracts (markets in the native APIs).
         kalshi_contracts = await kalshi.fetch_contracts()
-        polymarket_contracts = await polymarket.fetch_contracts() # Polymarket-specific query params
+        polymarket_contracts = await polymarket.fetch_contracts()
+
+        # Fetch a price for one contract.
+        price = await kalshi.fetch_price("KXELONMARS-99")
+        print(price.data.bid, price.data.ask, price.data.price)
+
+
+asyncio.run(main())
 ```
-### WS
+
+Query parameters are passed straight through, so anything the native API accepts works here. `None` values are dropped before the request is sent.
+
+### Websocket
+
 ```python
-from predmarket import PolymarktWS # Kalshi is NOT currently supported, but will be very solutions
+import asyncio
 
-async def main():
+from predmarket import PolymarketWS
+
+
+async def main() -> None:
     async with PolymarketWS.connect() as socket:
-        polymarket = PolymarketWS(socket)
-        for row in polymarket.stream(["AB.....XYZ"]): # Example of fetching real markets later in docs
-            print(row) # Row is a pydantic model. Autocomplete!
+        stream = PolymarketWS(socket).stream(["<asset_id>"])
+        async for update in stream:
+            print(update.model_dump_json())
 
 
+asyncio.run(main())
 ```
+
+`stream` yields typed models — `BookSnapshot`, `BookDelta`, `Trade`, or `Ticker` — so your editor autocompletes every field. See [`examples/stream_polymarket.py`](examples/stream_polymarket.py) for a runnable version that streams the busiest live markets.
+
+### Errors
+
+Failures raise subclasses of `PredmarketError`, importable from `predmarket` or `predmarket.errors`: `APIError` when an exchange answers with a non-success status (it carries `status_code` and `body`), and `TransportError` when the request never produced a response.
+
+## Development
+
+```sh
+uv sync
+uv run ruff check .
+uv run python examples/stream_polymarket.py
+```
+
 ## More Information
-`predmarket` is under rapid development. Expect breaking changes unless indiciated otherwise.
+
+`predmarket` is under rapid development. Expect breaking changes unless indicated otherwise.

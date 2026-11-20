@@ -1,15 +1,34 @@
-from typing import List, Literal, Optional, Union
-from pydantic import BaseModel, Field
-from enum import Enum
-from datetime import datetime
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel
+
+__all__ = [
+    "BookDelta",
+    "BookSnapshot",
+    "Exchange",
+    "KalshiParser",
+    "PolymarketParser",
+    "PriceLevel",
+    "Side",
+    "Ticker",
+    "Trade",
+    "UnifiedModel",
+    "normalize_message",
+]
 
 
-class Exchange(str, Enum):
+class Exchange(StrEnum):
+    """Exchanges predmarket speaks to."""
+
     POLYMARKET = "polymarket"
     KALSHI = "kalshi"
 
 
-class Side(str, Enum):
+class Side(StrEnum):
+    """Order side or contract outcome, depending on the model."""
+
     BUY = "buy"
     SELL = "sell"
     YES = "yes"
@@ -17,205 +36,203 @@ class Side(str, Enum):
 
 
 class PriceLevel(BaseModel):
-    price: float = Field(..., description="Price in USD (or cents normalized to USD).")
-    size: float = Field(..., description="Quantity available at this price level.")
-    side: Optional[Side] = None
+    """One price level in an order book."""
+
+    price: float
+    size: float
+    side: Side | None = None
 
 
 class BookSnapshot(BaseModel):
+    """Full order book for a market."""
+
     exchange: Exchange
     market_id: str
-    bids: List[PriceLevel]
-    asks: List[PriceLevel]
-    timestamp: Optional[datetime] = None
+    bids: list[PriceLevel]
+    asks: list[PriceLevel]
+    timestamp: datetime | None = None
 
 
 class BookDelta(BaseModel):
+    """Incremental change to an order book."""
+
     exchange: Exchange
     market_id: str
-    deltas: List[PriceLevel]
-    timestamp: Optional[datetime] = None
+    deltas: list[PriceLevel]
+    timestamp: datetime | None = None
 
 
 class Trade(BaseModel):
+    """A completed trade."""
+
     exchange: Exchange
     market_id: str
     price: float
     size: float
     side: Side
-    taker_side: Optional[Side] = None
-    timestamp: Optional[datetime] = None
+    taker_side: Side | None = None
+    timestamp: datetime | None = None
 
 
 class Ticker(BaseModel):
+    """Best bid/offer and volume summary for a market."""
+
     exchange: Exchange
     market_id: str
-    last_price: Optional[float] = None
-    best_bid: Optional[float] = None
-    best_ask: Optional[float] = None
-    volume: Optional[float] = None
-    open_interest: Optional[float] = None
-    timestamp: Optional[datetime] = None
+    last_price: float | None = None
+    best_bid: float | None = None
+    best_ask: float | None = None
+    volume: float | None = None
+    open_interest: float | None = None
+    timestamp: datetime | None = None
 
 
-UnifiedModel = Union[BookSnapshot, BookDelta, Trade, Ticker]
+type UnifiedModel = BookSnapshot | BookDelta | Trade | Ticker
+
+
+def _epoch_ms(value: Any) -> datetime | None:
+    """Convert a millisecond epoch timestamp into an aware datetime."""
+    if not value:
+        return None
+    try:
+        return datetime.fromtimestamp(int(value) / 1000, tz=UTC)
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _iso(value: Any) -> datetime | None:
+    """Parse an ISO-8601 timestamp into an aware datetime."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 class PolymarketParser:
-    """Parses Polymarket WS messages into unified models."""
+    """Parse Polymarket CLOB websocket messages into unified models."""
 
     @staticmethod
-    def parse(msg: dict) -> Optional[UnifiedModel]:
-        et = msg.get("event_type")
-        ts = (
-            datetime.fromtimestamp(int(msg.get("timestamp", 0)) / 1000)
-            if msg.get("timestamp")
-            else None
-        )
-        market_id = msg.get("market") or msg.get("condition_id") or msg.get("asset_id")
+    def parse(msg: dict[str, Any]) -> UnifiedModel | None:
+        timestamp = _epoch_ms(msg.get("timestamp"))
+        market_id = msg.get("market") or msg.get("condition_id") or msg.get("asset_id") or ""
 
-        if et == "book":
-            bids = [
-                PriceLevel(
-                    price=float(x["price"]), size=float(x["size"]), side=Side.BUY
+        match msg.get("event_type"):
+            case "book":
+                return BookSnapshot(
+                    exchange=Exchange.POLYMARKET,
+                    market_id=market_id,
+                    bids=[
+                        PriceLevel(price=float(x["price"]), size=float(x["size"]), side=Side.BUY)
+                        for x in msg.get("bids", [])
+                    ],
+                    asks=[
+                        PriceLevel(price=float(x["price"]), size=float(x["size"]), side=Side.SELL)
+                        for x in msg.get("asks", [])
+                    ],
+                    timestamp=timestamp,
                 )
-                for x in msg.get("bids", [])
-            ]
-            asks = [
-                PriceLevel(
-                    price=float(x["price"]), size=float(x["size"]), side=Side.SELL
+            case "price_change":
+                return BookDelta(
+                    exchange=Exchange.POLYMARKET,
+                    market_id=market_id,
+                    deltas=[
+                        PriceLevel(
+                            price=float(change["price"]),
+                            size=float(change["size"]),
+                            side=Side.BUY if change.get("side") == "BUY" else Side.SELL,
+                        )
+                        for change in msg.get("price_changes", [])
+                    ],
+                    timestamp=timestamp,
                 )
-                for x in msg.get("asks", [])
-            ]
-            return BookSnapshot(
-                exchange=Exchange.POLYMARKET,
-                market_id=market_id,
-                bids=bids,
-                asks=asks,
-                timestamp=ts,
-            )
-
-        elif et == "price_change":
-            deltas = []
-            for pc in msg.get("price_changes", []):
-                side = Side.BUY if pc.get("side") == "BUY" else Side.SELL
-                deltas.append(
-                    PriceLevel(
-                        price=float(pc["price"]), size=float(pc["size"]), side=side
-                    )
+            case "last_trade_price":
+                return Trade(
+                    exchange=Exchange.POLYMARKET,
+                    market_id=market_id,
+                    price=float(msg.get("price", 0)),
+                    size=float(msg.get("size", 0)),
+                    side=Side.BUY if msg.get("side") == "BUY" else Side.SELL,
+                    timestamp=timestamp,
                 )
-            return BookDelta(
-                exchange=Exchange.POLYMARKET,
-                market_id=market_id,
-                deltas=deltas,
-                timestamp=ts,
-            )
-
-        elif et == "last_trade_price":
-            return Trade(
-                exchange=Exchange.POLYMARKET,
-                market_id=market_id,
-                price=float(msg.get("price")),
-                size=float(msg.get("size", 0)),
-                side=Side.BUY if msg.get("side") == "BUY" else Side.SELL,
-                timestamp=ts,
-            )
-
-        return None
+            case _:
+                return None
 
 
 class KalshiParser:
-    """Parses Kalshi WS messages into unified models."""
+    """Parse Kalshi websocket messages into unified models."""
 
     @staticmethod
-    def parse(msg: dict) -> Optional[UnifiedModel]:
-        t = msg.get("type")
+    def parse(msg: dict[str, Any]) -> UnifiedModel | None:
         data = msg.get("msg") or msg.get("data") or {}
-        ts = None
-        if "ts" in data:
-            # Kalshi timestamps are typically ISO strings
-            try:
-                ts = datetime.fromisoformat(data["ts"].replace("Z", "+00:00"))
-            except Exception:
-                pass
-        market_id = data.get("market_ticker")
+        timestamp = _iso(data.get("ts"))
+        market_id = data.get("market_ticker") or ""
 
-        if t == "orderbook_snapshot":
-            bids_yes = [
-                PriceLevel(price=x[0] / 100.0, size=x[1], side=Side.YES)
-                for x in data.get("yes", [])
-            ]
-            bids_no = [
-                PriceLevel(price=x[0] / 100.0, size=x[1], side=Side.NO)
-                for x in data.get("no", [])
-            ]
-            return BookSnapshot(
-                exchange=Exchange.KALSHI,
-                market_id=market_id,
-                bids=bids_yes,
-                asks=bids_no,
-                timestamp=ts,
-            )
-
-        elif t == "orderbook_delta":
-            deltas = []
-            for side in ("yes", "no"):
-                for d in data.get(side, []):
-                    deltas.append(
+        match msg.get("type"):
+            case "orderbook_snapshot":
+                return BookSnapshot(
+                    exchange=Exchange.KALSHI,
+                    market_id=market_id,
+                    bids=[
+                        PriceLevel(price=price / 100, size=size, side=Side.YES)
+                        for price, size in data.get("yes", [])
+                    ],
+                    asks=[
+                        PriceLevel(price=price / 100, size=size, side=Side.NO)
+                        for price, size in data.get("no", [])
+                    ],
+                    timestamp=timestamp,
+                )
+            case "orderbook_delta":
+                return BookDelta(
+                    exchange=Exchange.KALSHI,
+                    market_id=market_id,
+                    deltas=[
                         PriceLevel(
-                            price=d[0] / 100.0,
-                            size=d[1],
+                            price=price / 100,
+                            size=size,
                             side=Side.YES if side == "yes" else Side.NO,
                         )
-                    )
-            return BookDelta(
-                exchange=Exchange.KALSHI,
-                market_id=market_id,
-                deltas=deltas,
-                timestamp=ts,
-            )
-
-        elif t == "trade":
-            return Trade(
-                exchange=Exchange.KALSHI,
-                market_id=market_id,
-                price=float(data.get("yes_price", 0)) / 100.0,
-                size=float(data.get("count", 0)),
-                taker_side=Side.YES if data.get("taker_side") == "yes" else Side.NO,
-                side=Side.YES if data.get("taker_side") == "yes" else Side.NO,
-                timestamp=ts,
-            )
-
-        elif t == "ticker":
-            return Ticker(
-                exchange=Exchange.KALSHI,
-                market_id=market_id,
-                last_price=(data.get("price", 0) / 100.0)
-                if data.get("price")
-                else None,
-                best_bid=(data.get("yes_bid", 0) / 100.0)
-                if data.get("yes_bid")
-                else None,
-                best_ask=(data.get("yes_ask", 0) / 100.0)
-                if data.get("yes_ask")
-                else None,
-                volume=float(data.get("volume", 0)) if data.get("volume") else None,
-                open_interest=float(data.get("open_interest", 0))
-                if data.get("open_interest")
-                else None,
-                timestamp=ts,
-            )
-
-        return None
+                        for side in ("yes", "no")
+                        for price, size in data.get(side, [])
+                    ],
+                    timestamp=timestamp,
+                )
+            case "trade":
+                taker = Side.YES if data.get("taker_side") == "yes" else Side.NO
+                return Trade(
+                    exchange=Exchange.KALSHI,
+                    market_id=market_id,
+                    price=float(data.get("yes_price", 0)) / 100,
+                    size=float(data.get("count", 0)),
+                    side=taker,
+                    taker_side=taker,
+                    timestamp=timestamp,
+                )
+            case "ticker":
+                return Ticker(
+                    exchange=Exchange.KALSHI,
+                    market_id=market_id,
+                    last_price=data["price"] / 100 if data.get("price") else None,
+                    best_bid=data["yes_bid"] / 100 if data.get("yes_bid") else None,
+                    best_ask=data["yes_ask"] / 100 if data.get("yes_ask") else None,
+                    volume=float(data["volume"]) if data.get("volume") else None,
+                    open_interest=float(data["open_interest"])
+                    if data.get("open_interest")
+                    else None,
+                    timestamp=timestamp,
+                )
+            case _:
+                return None
 
 
-def normalize_message(
-    msg: dict, source: Literal["polymarket", "kalshi"]
-) -> Optional[UnifiedModel]:
-    """Normalize any raw message from either source into a unified Pydantic model."""
-    if source == "polymarket":
-        return PolymarketParser.parse(msg)
-    elif source == "kalshi":
-        return KalshiParser.parse(msg)
-    else:
-        raise ValueError(f"Unknown source: {source}")
+def normalize_message(msg: dict[str, Any], source: Exchange | str) -> UnifiedModel | None:
+    """Normalize a raw exchange websocket message into a unified model."""
+    match source:
+        case Exchange.POLYMARKET | "polymarket":
+            return PolymarketParser.parse(msg)
+        case Exchange.KALSHI | "kalshi":
+            return KalshiParser.parse(msg)
+        case _:
+            raise ValueError(f"Unknown source: {source}")

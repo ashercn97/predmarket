@@ -1,11 +1,17 @@
 from abc import ABC, abstractmethod
 from typing import Any
-from .response import *
-from httpx import AsyncClient, HTTPStatusError
+
+from httpx import AsyncClient, HTTPStatusError, RequestError
 from yarl import URL
+
+from predmarket.errors import APIError, TransportError
+
+from .contract import Contract
 from .price import Price
 from .question import Question
-from .contract import Contract
+from .response import Response
+
+__all__ = ["BaseExchangeClient"]
 
 
 class BaseExchangeClient(ABC):
@@ -15,13 +21,19 @@ class BaseExchangeClient(ABC):
         self._client = client
 
     async def _safe_get(self, url: URL, params: dict[str, Any]) -> Any:
-        """Perform a GET request with simple error handling."""
+        """Perform a GET request, raising a predmarket error on failure."""
         try:
             response = await self._client.get(str(url), params=params)
             response.raise_for_status()
-            return response.json()
         except HTTPStatusError as exc:
-            raise RuntimeError(f"Request failed ({url}): {exc.response.text}") from exc
+            raise APIError(str(url), exc.response.status_code, exc.response.text) from exc
+        except RequestError as exc:
+            raise TransportError(f"Request to {url} failed: {exc}") from exc
+
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise APIError(str(url), response.status_code, response.text) from exc
 
     @abstractmethod
     async def fetch_price(self, id: str) -> Response[Price]:

@@ -1,14 +1,16 @@
+from typing import Any
+
+import structlog
+from yarl import URL
+
 from predmarket.model.rest import (
-    Response,
-    Price,
-    Contract,
     BaseExchangeClient,
+    Contract,
+    Price,
     Question,
+    Response,
     clean_params,
 )
-from typing import Any
-from yarl import URL
-import structlog
 
 log = structlog.get_logger()
 

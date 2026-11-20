@@ -1,10 +1,9 @@
+from typing import Any
+
 from pydantic import BaseModel, Field
-from typing import TypeVar, Generic, Any
-
-T = TypeVar("T")
 
 
-class Response(BaseModel, Generic[T]):
+class Response[T](BaseModel):
     """Generic API response wrapper."""
 
     data: T
