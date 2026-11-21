@@ -1,19 +1,66 @@
+[build-system]
+requires = ["hatchling>=1.33.0"]
+build-backend = "hatchling.build"
+
 [project]
 name = "predmarket"
 version = "0.1.0"
-description = "Unified data API for Kalshi and Polymarket. Core schema + clean SDk."
+description = "Unified data API for Kalshi and Polymarket. Core schema + clean SDK."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
+keywords = ["prediction-markets", "kalshi", "polymarket", "asyncio", "trading"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
 dependencies = [
     "httpx>=0.28.1",
-    "pydantic>=2.11.10",
-    "structlog>=25.4.0",
-    "websockets>=15.0.1",
-    "yarl>=1.22.0",
+    "pydantic>=2.14.4",
+    "websockets>=17.4",
+    "yarl>=1.25.1",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest>=8.4.2",
-    "pytest-asyncio>=1.2.0",
+    "pyright>=1.1.414",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
+    "ruff>=0.17.6",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/predmarket"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests", "examples"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RUF", "ASYNC", "PT", "A"]
+ignore = ["A002", "B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["predmarket"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.pyright]
+include = ["src", "examples"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+reportMissingTypeStubs = false
